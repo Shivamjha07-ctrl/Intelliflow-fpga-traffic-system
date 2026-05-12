@@ -1,0 +1,88 @@
+`timescale 1ns / 1ps
+
+module uart_tx(
+    input        clk,        // 100 MHz
+    input        rst,
+    input        tx_start,   // a single-cycle pulse to start transmission
+    input  [7:0] tx_data,
+    output reg   tx,
+    output reg   tx_busy
+);
+
+// =====================================================
+// BAUD RATE GENERATOR (9600 baud from 100 MHz)
+// =====================================================
+parameter   SYSTEM_CLK = 100_000_000;
+parameter   BAUD_RATE  = 9600;
+localparam  BAUD_COUNT = SYSTEM_CLK / BAUD_RATE; // 10416.666 -> use 10417
+
+reg [$clog2(BAUD_COUNT)-1:0] baud_counter;
+wire                         baud_tick = (baud_counter == BAUD_COUNT - 1);
+
+always @(posedge clk or posedge rst) begin
+    if (rst)
+        baud_counter <= 0;
+    else if (baud_tick)
+        baud_counter <= 0;
+    else
+        baud_counter <= baud_counter + 1;
+end
+
+// =====================================================
+// MAIN FSM (now advances only on baud_tick)
+// =====================================================
+parameter IDLE  = 0,
+          START = 1,
+          DATA  = 2,
+          STOP  = 3;
+
+reg [1:0] state;
+reg [2:0] bit_index;
+reg [7:0] data_reg;
+
+always @(posedge clk or posedge rst) begin
+    if (rst) begin
+        state      <= IDLE;
+        tx         <= 1'b1;
+        tx_busy    <= 1'b0;
+        bit_index  <= 0;
+        data_reg   <= 0;
+    end else begin
+        if (baud_tick) begin                    // ONLY change state on baud tick
+            case(state)
+                IDLE: begin
+                    tx <= 1'b1;
+                    tx_busy <= 1'b0;
+                    if (tx_start) begin
+                        tx_busy <= 1'b1;
+                        data_reg <= tx_data;
+                        state <= START;
+                    end
+                end
+
+                START: begin
+                    tx <= 1'b0;
+                    bit_index <= 0;
+                    state <= DATA;
+                end
+
+                DATA: begin
+                    tx <= data_reg[bit_index];
+                    if (bit_index < 7)
+                        bit_index <= bit_index + 1;
+                    else
+                        state <= STOP;
+                end
+
+                STOP: begin
+                    tx <= 1'b1;
+                    state <= IDLE;
+                end
+
+                default: state <= IDLE;
+            endcase
+        end
+    end
+end
+
+endmodule

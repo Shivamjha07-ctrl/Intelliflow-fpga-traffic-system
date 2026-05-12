@@ -1,0 +1,62 @@
+`timescale 1ns / 1ps
+
+module ultrasonic_sensor(
+    input         clk,          // 100 MHz system clock
+    input         rst,
+    output reg    trigger,      // 10 us trigger pulse (NOW REG)
+    input         echo,         // echo input from sensor
+    output reg [1:0] density    // 2-bit traffic density (0 to 3)
+);
+
+    // Generate a 10 us trigger pulse every 60 ms
+    reg [23:0] counter;
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            counter <= 0;
+            trigger <= 0;
+        end else begin
+            counter <= counter + 1;
+            // 60 ms = 6,000,000 cycles at 100 MHz
+            if (counter == 24'd6_000_000) begin
+                counter <= 0;
+                trigger <= 0;
+            end else if (counter < 24'd1_000) begin   // 10 us = 1000 cycles
+                trigger <= 1;
+            end else begin
+                trigger <= 0;
+            end
+        end
+    end
+
+    // Measure echo pulse width and convert to density
+    // Clock cycles at 100 MHz (10 ns per cycle)
+    // Thresholds:
+    //   < 500 cycles  -> density 3 (very close)
+    //   < 1000 cycles -> density 2 (medium)
+    //   < 1500 cycles -> density 1 (far)
+    //   >= 1500 cycles -> density 0 (no object)
+    reg  [31:0] echo_timer;
+    reg         echo_prev;
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            echo_timer <= 0;
+            echo_prev  <= 0;
+            density    <= 0;
+        end else begin
+            echo_prev <= echo;
+            if (echo && !echo_prev) begin
+                // Rising edge: start counting
+                echo_timer <= 0;
+            end else if (echo) begin
+                echo_timer <= echo_timer + 1;
+            end else if (!echo && echo_prev) begin
+                // Falling edge: convert timer to density
+                if      (echo_timer < 32'd500)   density <= 2'd3;
+                else if (echo_timer < 32'd1000)  density <= 2'd2;
+                else if (echo_timer < 32'd1500)  density <= 2'd1;
+                else                              density <= 2'd0;
+            end
+        end
+    end
+
+endmodule

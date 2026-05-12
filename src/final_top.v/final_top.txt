@@ -1,0 +1,96 @@
+`timescale 1ns / 1ps
+
+module final_top(
+    input         Clk,
+    input         reset,
+    input  [8:0]  sensors_in,
+    output [2:0]  light_M1,
+    output [2:0]  light_M2,
+    output [2:0]  light_MT,
+    output [2:0]  light_S,
+    output [6:0]  seg,
+    output [3:0]  an,
+    output        tx,
+
+    // VGA outputs
+    output        hsync,
+    output        vsync,
+    output [3:0]  red,
+    output [3:0]  green,
+    output [3:0]  blue
+);
+
+    // AXI slave - tied off, outputs default weights
+    wire [31:0] w1, w2, w3, max_g;
+    traffic_axi_slave #(
+        .C_S_AXI_DATA_WIDTH(32),
+        .C_S_AXI_ADDR_WIDTH(5)
+    ) axi_inst (
+        .S_AXI_ACLK    (Clk),
+        .S_AXI_ARESETN (~reset),
+        .S_AXI_AWADDR  (5'd0),
+        .S_AXI_AWVALID (1'b0),
+        .S_AXI_AWREADY (),
+        .S_AXI_WDATA   (32'd0),
+        .S_AXI_WVALID  (1'b0),
+        .S_AXI_WREADY  (),
+        .S_AXI_BRESP   (),
+        .S_AXI_BVALID  (),
+        .S_AXI_BREADY  (1'b0),
+        .S_AXI_ARADDR  (5'd0),
+        .S_AXI_ARVALID (1'b0),
+        .S_AXI_ARREADY (),
+        .S_AXI_RDATA   (),
+        .S_AXI_RRESP   (),
+        .S_AXI_RVALID  (),
+        .S_AXI_RREADY  (1'b0),
+        .weight_M1     (w1),
+        .weight_M2     (w2),
+        .weight_S      (w3),
+        .max_green     (max_g)
+    );
+
+    // Main traffic core
+    traffic_top_core core (
+        .clk             (Clk),
+        .rst             (reset),
+        .density_M1      (sensors_in[1:0]),
+        .density_M2      (sensors_in[3:2]),
+        .density_S       (sensors_in[5:4]),
+        .emergency       (sensors_in[6]),
+        .pedestrian_btn  (sensors_in[7]),
+        .night_mode      (sensors_in[8]),
+        .weight_M1_axi   (w1),
+        .weight_M2_axi   (w2),
+        .weight_S_axi    (w3),
+        .max_green_axi   (max_g),
+        .light_M1        (light_M1),
+        .light_M2        (light_M2),
+        .light_MT        (light_MT),
+        .light_S         (light_S),
+        .seg             (seg),
+        .an              (an),
+        .tx              (tx)
+    );
+
+    // VGA visualisation
+    vga_top vga (
+        .clk          (Clk),
+        .rst          (reset),
+        .light_M1     (light_M1),
+        .light_M2     (light_M2),
+        .light_MT     (light_MT),
+        .light_S      (light_S),
+        .density_M1   (sensors_in[1:0]),
+        .density_M2   (sensors_in[3:2]),
+        .density_S    (sensors_in[5:4]),
+        .emergency    (sensors_in[6]),
+        .night_mode   (sensors_in[8]),
+        .hsync        (hsync),
+        .vsync        (vsync),
+        .red          (red),
+        .green        (green),
+        .blue         (blue)
+    );
+
+endmodule

@@ -1,0 +1,82 @@
+`timescale 1ns / 1ps
+
+module vga_draw(
+    input         clk, rst,
+    input [10:0]  hcount, vcount,
+    input [2:0]   light_M1, light_M2, light_MT, light_S,
+    input [1:0]   density_M1, density_M2, density_S,
+    input         emergency, night_mode,
+    output reg [3:0] red, green, blue
+);
+
+    wire visible = (hcount < 640) && (vcount < 480);
+
+    // Roads
+    wire h_road  = (vcount >= 200 && vcount < 280);
+    wire v_road  = (hcount >= 280 && hcount < 360);
+    wire inter   = h_road && v_road;
+
+    // Traffic light squares (16×16)
+    wire m1_sq   = (hcount >= 92  && hcount < 108)  && (vcount >= 142 && vcount < 158);
+    wire m2_sq   = (hcount >= 532 && hcount < 548)  && (vcount >= 322 && vcount < 338);
+    wire side_sq = (hcount >= 322 && hcount < 338)  && (vcount >= 442 && vcount < 458);
+
+    // Emergency indicator
+    wire emerg_sq = (hcount < 50) && (vcount < 50) && emergency;
+
+    // Combinational colour (no multipliers)
+    reg [3:0] r_comb, g_comb, b_comb;
+    always @(*) begin
+        r_comb = 4'h0; g_comb = 4'h8; b_comb = 4'h0;   // grass
+        if (h_road || v_road) begin
+            r_comb = 4'h4; g_comb = 4'h4; b_comb = 4'h4;   // road
+        end
+        if (inter) begin
+            r_comb = 4'h2; g_comb = 4'h2; b_comb = 4'h2;   // intersection
+        end
+        if (m1_sq) begin
+            case (light_M1)
+                3'b001: begin r_comb=4'h0; g_comb=4'hF; b_comb=4'h0; end
+                3'b010: begin r_comb=4'hF; g_comb=4'hF; b_comb=4'h0; end
+                3'b100: begin r_comb=4'hF; g_comb=4'h0; b_comb=4'h0; end
+            endcase
+        end
+        if (m2_sq) begin
+            case (light_M2)
+                3'b001: begin r_comb=4'h0; g_comb=4'hF; b_comb=4'h0; end
+                3'b010: begin r_comb=4'hF; g_comb=4'hF; b_comb=4'h0; end
+                3'b100: begin r_comb=4'hF; g_comb=4'h0; b_comb=4'h0; end
+            endcase
+        end
+        if (side_sq) begin
+            case (light_S)
+                3'b001: begin r_comb=4'h0; g_comb=4'hF; b_comb=4'h0; end
+                3'b010: begin r_comb=4'hF; g_comb=4'hF; b_comb=4'h0; end
+                3'b100: begin r_comb=4'hF; g_comb=4'h0; b_comb=4'h0; end
+            endcase
+        end
+        if (emerg_sq) begin
+            r_comb = 4'hF; g_comb = 4'h0; b_comb = 4'h0;
+        end
+        if (night_mode) begin
+            r_comb = r_comb >> 1; g_comb = g_comb >> 1; b_comb = b_comb >> 1;
+        end
+        if (!visible) begin
+            r_comb = 4'h0; g_comb = 4'h0; b_comb = 4'h0;
+        end
+    end
+
+    // Pipeline register - kills timing violation
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            red   <= 0;
+            green <= 0;
+            blue  <= 0;
+        end else begin
+            red   <= r_comb;
+            green <= g_comb;
+            blue  <= b_comb;
+        end
+    end
+
+endmodule

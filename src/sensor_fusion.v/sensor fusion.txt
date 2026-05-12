@@ -1,0 +1,68 @@
+`timescale 1ns / 1ps
+
+module sensor_fusion(
+    input [1:0] density_M1,
+    input [1:0] density_M2,
+    input [1:0] density_S,
+    input       emergency,
+    input       pedestrian,
+    input       night_mode,
+    input [31:0] weight_M1_axi,   // from AXI slave
+    input [31:0] weight_M2_axi,
+    input [31:0] weight_S_axi,
+    input [31:0] max_green_axi,   // max allowed green time
+    output reg [3:0] green_time_M1,
+    output reg [3:0] green_time_M2,
+    output reg [3:0] green_time_S
+);
+
+    // Truncate to actual bit width we need (8 bits enough for weights up to 255)
+    wire [7:0] w1 = weight_M1_axi[7:0];
+    wire [7:0] w2 = weight_M2_axi[7:0];
+    wire [7:0] w3 = weight_S_axi[7:0];
+    wire [7:0] max_g = max_green_axi[3:0];  // 0-15
+
+    // Compute total weight (max 24)
+    wire [7:0] total_weight = w1 + w2 + w3;
+
+    // Base green times (same mapping as before)
+    wire [3:0] base_M1, base_M2, base_S;
+    assign base_M1 = (density_M1 == 2'd0) ? 4'd3 :
+                     (density_M1 == 2'd1) ? 4'd5 :
+                     (density_M1 == 2'd2) ? 4'd7 :
+                     (density_M1 == 2'd3) ? 4'd9 : 4'd5;
+    assign base_M2 = (density_M2 == 2'd0) ? 4'd3 :
+                     (density_M2 == 2'd1) ? 4'd5 :
+                     (density_M2 == 2'd2) ? 4'd7 :
+                     (density_M2 == 2'd3) ? 4'd9 : 4'd5;
+    assign base_S  = (density_S  == 2'd0) ? 4'd3 :
+                     (density_S  == 2'd1) ? 4'd5 :
+                     (density_S  == 2'd2) ? 4'd7 :
+                     (density_S  == 2'd3) ? 4'd9 : 4'd5;
+
+    always @(*) begin
+        // Weighted average calculation
+        if (total_weight == 0) begin       // avoid division by zero
+            green_time_M1 = base_M1;
+            green_time_M2 = base_M2;
+            green_time_S  = base_S;
+        end else begin
+            green_time_M1 = (base_M1 * w1 + base_M2 * w2 + base_S * w3) / total_weight;
+            green_time_M2 = (base_M2 * w1 + base_M1 * w2 + base_S * w3) / total_weight;
+            green_time_S  = (base_S  * w1 + base_M1 * w2 + base_M2 * w3) / total_weight;
+        end
+
+        // Cap at max_green
+        if (green_time_M1 > max_g) green_time_M1 = max_g;
+        if (green_time_M2 > max_g) green_time_M2 = max_g;
+        if (green_time_S  > max_g) green_time_S  = max_g;
+
+        // Emergency override
+        if (emergency) begin
+            green_time_M1 = max_g;
+            green_time_M2 = 4'd0;
+            green_time_S  = 4'd0;
+        end
+    end
+
+endmodule

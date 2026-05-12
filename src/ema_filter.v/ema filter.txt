@@ -1,0 +1,31 @@
+`timescale 1ns / 1ps
+
+// -----------------------------------------------------------
+// Exponential Moving Average Filter
+// Used to smooth out density readings and detect trends.
+// alpha = 0.25   →   new_sample contributes 25%, old 75%
+// -----------------------------------------------------------
+module ema_filter(
+    input         clk,          // slow_clk (1 Hz)
+    input         rst,
+    input  [1:0]  density_in,   // new measurement (0-3)
+    input         update,       // 1 = sample now
+    output [7:0]  ema_out       // 2.6 fixed-point (8 bits)
+);
+
+    reg [7:0] ema_reg;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst)
+            ema_reg <= 8'd0;
+        else if (update) begin
+            // EMA = 0.25 * density_in + 0.75 * old_ema
+            // density_in is 0-3, so multiply by 16 to align (0.25 = 16/64)
+            ema_reg <= (density_in * 8'd16) + ((ema_reg * 8'd3) >> 2);
+            // (density_in*16) is up to 48, (ema_reg*3)/4 is up to 191, sum fits in 8 bits
+        end
+    end
+
+    assign ema_out = ema_reg;
+
+endmodule

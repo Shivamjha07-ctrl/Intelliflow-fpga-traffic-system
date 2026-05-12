@@ -1,0 +1,33 @@
+`timescale 1ns / 1ps
+
+module vga_sync(
+    input  clk, rst,
+    output hsync, vsync,
+    output reg [10:0] hcount,
+    output reg [10:0] vcount,
+    output wire pixclk_en   // <-- changed from reg to wire
+);
+
+    reg [1:0] clkdiv;
+    always @(posedge clk or posedge rst) begin
+        if (rst) clkdiv <= 0;
+        else     clkdiv <= clkdiv + 1;
+    end
+    assign pixclk_en = (clkdiv == 2'd3);   // now legal because pixclk_en is wire
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            hcount <= 0; vcount <= 0;
+        end else if (pixclk_en) begin
+            if (hcount == 799) begin
+                hcount <= 0;
+                if (vcount == 524) vcount <= 0;
+                else vcount <= vcount + 1;
+            end else hcount <= hcount + 1;
+        end
+    end
+
+    assign hsync = (hcount >= 656 && hcount < 752) ? 1'b0 : 1'b1;
+    assign vsync = (vcount >= 490 && vcount < 492) ? 1'b0 : 1'b1;
+
+endmodule
