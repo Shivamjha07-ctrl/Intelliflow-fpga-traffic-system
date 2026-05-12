@@ -1,0 +1,140 @@
+`timescale 1ns / 1ps
+
+module traffic_axi_slave #
+(
+    parameter integer C_S_AXI_DATA_WIDTH = 32,
+    parameter integer C_S_AXI_ADDR_WIDTH = 5
+)
+(
+    input  wire                           S_AXI_ACLK,
+    input  wire                           S_AXI_ARESETN,
+    input  wire [C_S_AXI_ADDR_WIDTH-1:0]  S_AXI_AWADDR,
+    input  wire                           S_AXI_AWVALID,
+    output wire                           S_AXI_AWREADY,
+    input  wire [C_S_AXI_DATA_WIDTH-1:0]  S_AXI_WDATA,
+    input  wire                           S_AXI_WVALID,
+    output wire                           S_AXI_WREADY,
+    output wire [1:0]                     S_AXI_BRESP,
+    output wire                           S_AXI_BVALID,
+    input  wire                           S_AXI_BREADY,
+    input  wire [C_S_AXI_ADDR_WIDTH-1:0]  S_AXI_ARADDR,
+    input  wire                           S_AXI_ARVALID,
+    output wire                           S_AXI_ARREADY,
+    output wire [C_S_AXI_DATA_WIDTH-1:0]  S_AXI_RDATA,
+    output wire [1:0]                     S_AXI_RRESP,
+    output wire                           S_AXI_RVALID,
+    input  wire                           S_AXI_RREADY,
+
+    output [31:0] weight_M1,
+    output [31:0] weight_M2,
+    output [31:0] weight_S,
+    output [31:0] max_green
+);
+
+    reg [C_S_AXI_DATA_WIDTH-1:0] reg_data [0:3];
+
+    reg awready, wready;
+    reg bvalid;
+    reg arready;
+    reg rvalid;
+    reg [C_S_AXI_DATA_WIDTH-1:0] rdata;
+
+    reg [C_S_AXI_ADDR_WIDTH-1:0] awaddr;
+    reg [C_S_AXI_DATA_WIDTH-1:0] wdata;
+
+    assign S_AXI_AWREADY = awready;
+    assign S_AXI_WREADY  = wready;
+    assign S_AXI_BRESP   = 2'b00;
+    assign S_AXI_BVALID  = bvalid;
+    assign S_AXI_ARREADY = arready;
+    assign S_AXI_RDATA   = rdata;
+    assign S_AXI_RRESP   = 2'b00;
+    assign S_AXI_RVALID  = rvalid;
+
+    // --------------------------------------------------------
+    // WRITE & RESET DEFAULT (single process)
+    // --------------------------------------------------------
+    always @(posedge S_AXI_ACLK) begin
+        if (~S_AXI_ARESETN) begin
+            awready  <= 1'b0;
+            wready   <= 1'b0;
+            bvalid   <= 1'b0;
+            awaddr   <= 0;
+            wdata    <= 0;
+            // default register values
+            reg_data[0] <= 32'd2;
+            reg_data[1] <= 32'd1;
+            reg_data[2] <= 32'd1;
+            reg_data[3] <= 32'd15;
+        end else begin
+            // AW channel
+            if (~awready && S_AXI_AWVALID) begin
+                awready <= 1'b1;
+                awaddr  <= S_AXI_AWADDR;
+            end else if (awready && S_AXI_WVALID && wready) begin
+                awready <= 1'b0;
+            end
+
+            // W channel
+            if (~wready && S_AXI_WVALID && awready) begin
+                wready <= 1'b1;
+                wdata  <= S_AXI_WDATA;
+            end else if (wready && S_AXI_WVALID && awready) begin
+                wready <= 1'b0;
+                case (awaddr[4:2])
+                    3'd0: reg_data[0] <= wdata;
+                    3'd1: reg_data[1] <= wdata;
+                    3'd2: reg_data[2] <= wdata;
+                    3'd3: reg_data[3] <= wdata;
+                    default: ;
+                endcase
+            end
+
+            // B channel
+            if (~bvalid && awready && wready && S_AXI_WVALID) begin
+                bvalid <= 1'b1;
+            end else if (bvalid && S_AXI_BREADY) begin
+                bvalid <= 1'b0;
+            end
+        end
+    end
+
+    // --------------------------------------------------------
+    // READ
+    // --------------------------------------------------------
+    integer read_addr;
+    always @(posedge S_AXI_ACLK) begin
+        if (~S_AXI_ARESETN) begin
+            arready <= 1'b0;
+            rvalid  <= 1'b0;
+            rdata   <= 0;
+        end else begin
+            if (~arready && S_AXI_ARVALID) begin
+                arready   <= 1'b1;
+                read_addr = S_AXI_ARADDR[4:2];
+            end else if (arready) begin
+                arready <= 1'b0;
+                rvalid  <= 1'b0;
+            end
+
+            if (~rvalid && arready) begin
+                rvalid <= 1'b1;
+                case (read_addr)
+                    3'd0: rdata <= reg_data[0];
+                    3'd1: rdata <= reg_data[1];
+                    3'd2: rdata <= reg_data[2];
+                    3'd3: rdata <= reg_data[3];
+                    default: rdata <= 32'd0;
+                endcase
+            end else if (rvalid && S_AXI_RREADY) begin
+                rvalid <= 1'b0;
+            end
+        end
+    end
+
+    assign weight_M1 = reg_data[0];
+    assign weight_M2 = reg_data[1];
+    assign weight_S  = reg_data[2];
+    assign max_green = reg_data[3];
+
+endmodule

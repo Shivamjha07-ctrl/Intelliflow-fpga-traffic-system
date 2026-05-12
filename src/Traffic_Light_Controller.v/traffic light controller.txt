@@ -1,0 +1,122 @@
+`timescale 1ns / 1ps
+
+module Traffic_Light_Controller(
+    input clk,
+    input rst,
+    input clk_en,
+
+    input [31:0] weight_M1_axi,
+    input [31:0] weight_M2_axi,
+    input [31:0] weight_S_axi,
+    input [31:0] max_green_axi,
+
+    input [1:0] density_M1,
+    input [1:0] density_M2,
+    input [1:0] density_S,
+    input emergency,
+    input pedestrian_btn,
+    input night_mode,
+
+    output reg [2:0] light_M1,
+    output reg [2:0] light_S,
+    output reg [2:0] light_MT,
+    output reg [2:0] light_M2,
+
+    output [2:0] state_code,
+    output [3:0] countdown_val
+);
+
+parameter S1 = 0, S2 = 1, S3 = 2, S4 = 3, S5 = 4, S6 = 5, S7 = 6;
+parameter sec7 = 7, sec5 = 5, sec3 = 3, sec2 = 2;
+
+reg [2:0] ps;
+reg [3:0] count;
+reg blink;
+
+// Sensor fusion with AXI weights
+wire [3:0] fused_green_M1, fused_green_M2, fused_green_S;
+sensor_fusion fusion_inst(
+    .density_M1(density_M1), .density_M2(density_M2), .density_S(density_S),
+    .emergency(emergency), .pedestrian(pedestrian_btn), .night_mode(night_mode),
+    .weight_M1_axi(weight_M1_axi), .weight_M2_axi(weight_M2_axi),
+    .weight_S_axi(weight_S_axi), .max_green_axi(max_green_axi),
+    .green_time_M1(fused_green_M1), .green_time_M2(fused_green_M2), .green_time_S(fused_green_S)
+);
+
+// AI EMA filters
+wire ema_update = 1'b1;
+wire [7:0] ema_M1, ema_M2, ema_S;
+ema_filter ema1(.clk(clk), .rst(rst), .density_in(density_M1), .update(ema_update), .ema_out(ema_M1));
+ema_filter ema2(.clk(clk), .rst(rst), .density_in(density_M2), .update(ema_update), .ema_out(ema_M2));
+ema_filter ema3(.clk(clk), .rst(rst), .density_in(density_S), .update(ema_update), .ema_out(ema_S));
+
+reg [7:0] ema_M1_prev, ema_M2_prev, ema_S_prev;
+always @(posedge clk or posedge rst) begin
+    if(rst) begin
+        ema_M1_prev <= 0; ema_M2_prev <= 0; ema_S_prev <= 0;
+    end else begin
+        ema_M1_prev <= ema_M1; ema_M2_prev <= ema_M2; ema_S_prev <= ema_S;
+    end
+end
+
+wire [3:0] boost_M1 = (ema_M1 > ema_M1_prev) ? 4'd1 : 4'd0;
+wire [3:0] boost_M2 = (ema_M2 > ema_M2_prev) ? 4'd1 : 4'd0;
+wire [3:0] boost_S  = (ema_S  > ema_S_prev)  ? 4'd1 : 4'd0;
+
+wire [3:0] green_M1 = (fused_green_M1 + boost_M1 > 15) ? 4'd15 : fused_green_M1 + boost_M1;
+wire [3:0] green_M2 = (fused_green_M2 + boost_M2 > 15) ? 4'd15 : fused_green_M2 + boost_M2;
+wire [3:0] green_S  = (fused_green_S  + boost_S  > 15) ? 4'd15 : fused_green_S  + boost_S;
+
+// Blink generator
+always @(posedge clk or posedge rst) begin
+    if(rst) blink <= 0;
+    else    blink <= ~blink;
+end
+
+// Main FSM (gated)
+always @(posedge clk or posedge rst) begin
+    if(rst) begin
+        ps <= S1;
+        count <= 0;
+    end
+    else if(clk_en) begin
+        if(!night_mode) begin
+            case(ps)
+                S1: begin if(count < green_M1) begin count <= count + 1; ps <= S1; end else begin count <= 0; ps <= S2; end end
+                S2: begin if(count < sec2) begin count <= count + 1; ps <= S2; end else begin count <= 0; ps <= S3; end end
+                S3: begin if(count < green_M1) begin count <= count + 1; ps <= S3; end else begin count <= 0; ps <= S4; end end
+                S4: begin if(count < sec2) begin count <= count + 1; ps <= S4; end else begin count <= 0; ps <= S5; end end
+                S5: begin if(count < green_S) begin count <= count + 1; ps <= S5; end else begin count <= 0; ps <= S6; end end
+                S6: begin if(count < sec2) begin count <= count + 1; ps <= S6; end else begin count <= 0; if(pedestrian_btn) ps <= S7; else ps <= S1; end end
+                S7: begin if(count < sec5) begin count <= count + 1; ps <= S7; end else begin count <= 0; ps <= S1; end end
+                default: begin ps <= S1; count <= 0; end
+            endcase
+        end
+    end
+end
+
+// Output logic
+always @(*) begin
+    if(night_mode) begin
+        light_M1 = blink ? 3'b010 : 3'b000;
+        light_M2 = 3'b100; light_MT = 3'b100; light_S = 3'b100;
+    end else if(emergency) begin
+        light_M1 = 3'b001; light_M2 = 3'b100; light_MT = 3'b100; light_S = 3'b100;
+    end else begin
+        case(ps)
+            S1: begin light_M1 = 3'b001; light_M2 = 3'b001; light_MT = 3'b100; light_S = 3'b100; end
+            S2: begin light_M1 = 3'b001; light_M2 = 3'b010; light_MT = 3'b100; light_S = 3'b100; end
+            S3: begin light_M1 = 3'b001; light_M2 = 3'b100; light_MT = 3'b001; light_S = 3'b100; end
+            S4: begin light_M1 = 3'b010; light_M2 = 3'b100; light_MT = 3'b010; light_S = 3'b100; end
+            S5: begin light_M1 = 3'b100; light_M2 = 3'b100; light_MT = 3'b100; light_S = 3'b001; end
+            S6: begin light_M1 = 3'b100; light_M2 = 3'b100; light_MT = 3'b100; light_S = 3'b010; end
+            S7: begin light_M1 = 3'b100; light_M2 = 3'b100; light_MT = 3'b100; light_S = 3'b100; end
+            default: begin light_M1 = 3'b000; light_M2 = 3'b000; light_MT = 3'b000; light_S = 3'b000; end
+        endcase
+    end
+end
+
+assign state_code = ps;
+assign countdown_val = count;
+
+endmodule

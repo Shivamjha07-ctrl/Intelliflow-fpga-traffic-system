@@ -1,0 +1,20 @@
+`timescale 1ns / 1ps
+
+module vga_top(
+    input        clk, rst,
+    input [2:0]  light_M1, light_M2, light_MT, light_S,
+    input [1:0]  density_M1, density_M2, density_S,
+    input        emergency, night_mode,
+    output       hsync, vsync,
+    output [3:0] red, green, blue
+);
+    wire [10:0] hcount, vcount;
+    wire pixclk_en;
+    vga_sync sync (.clk(clk), .rst(rst), .hsync(hsync), .vsync(vsync),
+                   .hcount(hcount), .vcount(vcount), .pixclk_en(pixclk_en));
+    vga_draw draw (.clk(clk), .rst(rst), .hcount(hcount), .vcount(vcount),
+                   .light_M1(light_M1), .light_M2(light_M2), .light_MT(light_MT), .light_S(light_S),
+                   .density_M1(density_M1), .density_M2(density_M2), .density_S(density_S),
+                   .emergency(emergency), .night_mode(night_mode),
+                   .red(red), .green(green), .blue(blue));
+endmodule

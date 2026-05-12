@@ -1,0 +1,30 @@
+`timescale 1ns / 1ps
+
+module power_manager(
+    input        clk,          // slow_clk (1 Hz)
+    input        rst,
+    input [1:0]  density_M1,
+    input [1:0]  density_M2,
+    input [1:0]  density_S,
+    input        emergency,
+    input        pedestrian,
+    input        night_mode,
+    output reg   clk_en        // 1 = normal operation, 0 = freeze FSM
+);
+
+    // Idle condition: no traffic, no special requests, not night mode
+    wire idle = (density_M1 == 2'd0) &&
+                (density_M2 == 2'd0) &&
+                (density_S  == 2'd0) &&
+                (emergency  == 1'b0) &&
+                (pedestrian == 1'b0) &&
+                (night_mode == 1'b0);
+
+    always @(posedge clk or posedge rst) begin
+        if (rst)
+            clk_en <= 1'b1;      // after reset, assume normal
+        else
+            clk_en <= ~idle;     // when idle, disable; else enable
+    end
+
+endmodule

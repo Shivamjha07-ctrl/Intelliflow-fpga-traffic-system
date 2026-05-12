@@ -1,0 +1,45 @@
+`timescale 1ns / 1ps
+
+module tb_ultrasonic;
+
+    logic        clk, rst, echo;
+    logic        trigger;
+    logic [1:0]  density;
+
+    ultrasonic_sensor uut (.*);
+
+    // 100 MHz clock
+    always #5 clk = ~clk;
+
+    initial begin
+        clk = 0;
+        rst = 1;
+        echo = 0;
+        #20 rst = 0;
+
+        // Wait for the first trigger pulse to go high
+        @(posedge trigger);
+
+        // Wait a small delay, then send an echo pulse
+        // Pulse width = 750 clock cycles (7.5 us) → medium density
+        #100;
+        echo = 1;
+        #7500;    // 7.5 us = 7500 ns = 750 cycles
+        echo = 0;
+
+        // Wait a little for the density to be updated
+        #200;
+
+        // Self-checking test
+        if (density !== 2'd2) begin
+            $display("Echo width: %0d ns → Density (expected 2) = %0d", 7500, density);
+            $display("*** ULTRASONIC SENSOR TEST FAILED ***");
+            $stop;
+        end else begin
+            $display("Echo width: %0d ns → Density = %0d (PASSED)", 7500, density);
+        end
+
+        #1000 $finish;
+    end
+
+endmodule
